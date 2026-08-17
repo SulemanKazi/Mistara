@@ -1,0 +1,36 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Artifact store: page images, the run ledger, and cached provider responses.
+# Rebuildable with `mistara ingest` — EXCEPT the response cache, which costs
+# real money to regenerate. Dump anything worth keeping to data/results/.
+data/store/
+
+# data/results/ is deliberately NOT ignored: it holds model output that cannot
+# be regenerated for free, and the files you correct to build reference data.
+
+# Corpora are fetched, not vendored: `mistara corpus fetch` rebuilds them, and
+# the redistribution terms of the Quran text are unverified (design D3), so the
+# text is not committed here.
+data/corpora/
+
+# Rendered output
+out/
+
+# Excluded from the published repo (per request)
+docs/
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

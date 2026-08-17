@@ -1,0 +1,48 @@
+[project]
+name = "mistara"
+version = "0.1.0"
+description = "Layout-preserving OCR and verification pipeline for printed Urdu/Arabic books"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.9",
+    "pymupdf>=1.24",
+    "opencv-python-headless>=4.10",
+    "numpy>=2.0",
+    "typer>=0.15",
+    "rich>=13.9",
+    "structlog>=24.4",
+    "rapidfuzz>=3.10",
+    "jinja2>=3.1",
+    "anthropic>=0.69",
+    "google-genai>=1.51",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+mistara = "mistara.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "ruff>=0.8",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mistara"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

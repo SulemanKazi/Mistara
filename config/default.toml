@@ -1,0 +1,299 @@
+# Mistara tuning profile — defaults.
+#
+# Every value here was fitted to ONE book at ~106 DPI. A different print run,
+# scanner, or typesetter will move some of them. Copy this file per book and
+# override only what you need — omitted keys fall back to these defaults, so a
+# per-book profile can be three lines long.
+#
+#   uv run mistara ingest book.pdf  --config config/tafsir.toml
+#   uv run mistara extract <doc_id> --config config/tafsir.toml
+#   uv run mistara config           --config config/tafsir.toml   # effective values
+#
+# Unknown keys are rejected rather than ignored: a typo would otherwise leave
+# the default silently in place, which is the worst failure mode for a tuning
+# file. Config values are part of each stage's cache key, so changing one
+# re-runs the affected stages instead of serving a stale result.
+
+name = "default"
+notes = ""
+
+
+# ---------------------------------------------------------------------------
+# Ingest — getting page images out of the PDF
+# ---------------------------------------------------------------------------
+[ingest]
+
+# Rasterization DPI. Used ONLY for pages that are not a single full-page image;
+# scans are extracted at their native resolution instead, never upsampled.
+target_dpi = 400.0
+
+# Fraction of page area one image must cover to count as "this page is a scan".
+# Not near 1.0 because scans are routinely letterboxed inside a Letter/A4 page —
+# the sample covers 0.79.
+native_image_coverage = 0.55
+
+# Below this true source DPI, warn that nastaliq dot placement (i'jam) may be
+# unrecoverable. Raise it if you want louder complaints about scan quality.
+low_dpi_warning = 150.0
+
+# A page with less ink than this is reported blank.
+blank_page_ink_ratio = 0.002
+
+# Grey level below which a pixel counts as ink (0-255).
+ink_level = 200
+
+
+# ---------------------------------------------------------------------------
+# Binarization — the most scan-dependent setting in the file
+# ---------------------------------------------------------------------------
+# Faded or unevenly lit scans want a LARGER block and a SMALLER c.
+# Crisp high-contrast scans tolerate the reverse. If line detection is behaving
+# strangely on a new book, try these before anything else.
+[segment.binarize]
+block_size = 31   # neighbourhood size, forced odd; roughly a character's width
+c = 10.0          # subtracted from the local mean; higher keeps less ink
+
+
+# ---------------------------------------------------------------------------
+# Line detection — horizontal projection of ink
+# ---------------------------------------------------------------------------
+[segment.lines]
+
+min_gap_px = 3        # ink-free rows needed to end a line band
+min_height_px = 5     # shorter bands are noise
+smooth_window = 3     # rows of smoothing on the projection profile
+
+# Fraction of mean row-ink a row must reach to count as text.
+#
+# WARNING: lowering this does NOT recover short lines. It lifts the valleys
+# between lines above the threshold too, so bands fuse and the line count
+# DROPS. Measured on the sample: 0.30 -> 27 rows, 0.12 -> 23, 0.08 -> 19,
+# while ink coverage rose to 100% because everything collapsed into fewer,
+# bigger boxes. Optimise pitch regularity, not ink coverage.
+threshold_scale = 0.30
+
+
+# ---------------------------------------------------------------------------
+# Row assessment — detecting merged and missed lines (vertical axis)
+# ---------------------------------------------------------------------------
+# Leans on typesetting: a printed page sits on a regular baseline grid, so a
+# merge shows up as an over-tall box and a miss as an over-wide gap.
+[segment.assess]
+
+# Box taller than this multiple of the median implies a merge. Note the line
+# count is derived from PITCH, not height: a 2-line box is ~3x a line's height
+# because it swallows the gap between them.
+tall_factor = 1.6
+
+# Gap wider than this multiple of the median pitch is a candidate missed line.
+gap_factor = 1.5
+
+# ...but only if it still contains this share of a typical row's ink. This is
+# what separates a real missed line (~12% on the sample) from the header/body
+# gap (~3% speckle), and is why gap width alone is not a usable signal.
+# Calibrated on exactly two data points — treat as provisional.
+stranded_ink_frac = 0.08
+
+# Pitch variation above this suggests segmentation is not tracking the grid.
+max_pitch_cv = 0.35
+
+# Below this many lines, regularity is meaningless and no assessment is made.
+min_rows_for_assessment = 4
+
+
+# ---------------------------------------------------------------------------
+# Columns — side-by-side cells (horizontal axis)
+# ---------------------------------------------------------------------------
+# Arabic/Urdu pairs, tables, and margin notes. Invisible to every setting above:
+# such a row is normal-height and sits on the regular pitch. The giveaway is an
+# ink-free gutter shared by consecutive rows at the same x.
+[segment.columns]
+
+# Consecutive rows that must share a gutter before it counts as a column block.
+# Raising this is safer but misses genuine single-row side-by-side layouts by
+# construction. Lowering it to 1 will split prose on chance word gaps.
+min_rows = 2
+
+# Overlap required between consecutive rows' gutters. Overlap rather than centre
+# distance: a wide gutter's centre sits far from a narrow one's even when both
+# mark the same column boundary.
+align_overlap_px = 4.0
+
+# A gutter must exceed this multiple of the page's typical word gap...
+min_gutter_ratio = 3.0
+# ...and this fraction of the median line height.
+min_gutter_frac_of_height = 0.4
+
+# Ink-free runs this close to a box edge are page margins, not gutters.
+edge_margin_px = 5
+
+# Narrower/wider cell ratio below which a split is a margin note rather than a
+# table of comparable columns.
+margin_note_ratio = 0.35
+
+
+# ---------------------------------------------------------------------------
+# Reading order — grouping cells into regions and sequencing them
+# ---------------------------------------------------------------------------
+# The geometric thresholds this stage needs already live under
+# [segment.columns] and are reused, not repeated here. Only what is genuinely
+# new to ordering appears below.
+[order]
+
+# Vertical overlap (as a share of the shorter cell's height) for two cells to
+# count as the same row. Cells split from one row share a y-extent almost
+# exactly, so this is not sensitive.
+band_overlap_frac = 0.5
+
+# How to read a side-by-side block.
+#
+#   "column_major" — finish the right column, then the left. Correct for
+#                    parallel text: the Arabic passage, then its Urdu
+#                    translation. This is the default because that is the
+#                    structure observed in the sample.
+#   "row_major"    — read across each row. Correct for a table.
+#
+# We cannot yet distinguish the two (that is region typing, S2), so this is a
+# per-book choice rather than something detected. Set it per book.
+column_read_order = "column_major"
+
+# Share of a column region's lines that must agree on a language before the
+# grouping is trusted. A column holding both Arabic and Urdu means the gutter
+# was probably in the wrong place — this is text evidence checking a decision
+# that was made on geometry alone. Provisional.
+min_column_purity = 0.8
+
+# ...but only for columns with at least this many lines. Over two lines purity
+# can only be 0, 0.5 or 1, so it carries no information. Margin notes are short
+# by nature and their two-word fragments are exactly what the provisional
+# language heuristic reads worst, so without this guard every one of them
+# reports a finding. Same reasoning as segment.assess.min_rows_for_assessment.
+min_lines_for_purity = 3
+
+
+# ---------------------------------------------------------------------------
+# Corpus matching — when an alignment is good enough to act on
+# ---------------------------------------------------------------------------
+# The governing target is a FALSE REPLACEMENT RATE OF ZERO. Leaving a verse as
+# OCR is a small loss; overwriting the author's page with the wrong verse is
+# the one failure this project cannot ship. Every default below is set on that
+# side, and none of them should be loosened without a measurement.
+[match]
+
+# Character identity inside the aligned span. Governs whether the TEXT is right.
+min_identity = 0.92
+
+# Share of the query the alignment consumed. Separates "this line IS a verse"
+# from "this line CONTAINS a verse" — the first is replaced outright, the
+# second is only cited unless replace_inline is on.
+min_coverage = 0.85
+
+# Shortest alignment that may be acted on at all.
+#
+# This is not a tuning knob, it is a safety floor. Measured on the samples: a
+# single common word shared with the Quran matches Urdu prose at identity 1.00.
+# Coverage does not catch it, because a genuine inline quote is a low-coverage
+# match by definition. Length is the only thing that separates them.
+min_span_tokens = 4
+
+# Queries shorter than this are not looked up at all.
+min_query_tokens = 3
+
+# A shorter floor, allowed ONLY for a line that contiguously continues the
+# passage the previous accepted line matched. A 2-3 word verse tail like
+# `مُہْتَدُوْنَ (82 انعام)` sits below min_span_tokens and would otherwise resolve
+# to nothing. Continuity is the guard the length floor gives up: a random short
+# line will not also align to the exact next corpus position, so this does not
+# reopen the false-replacement risk min_span_tokens closes for isolated lines.
+# (Verified on the samples: every continuation-licensed match was correct, and
+# the same short query returns nothing when looked up cold.)
+min_continuation_tokens = 1
+
+# How far a match may start past where the previous accepted line ended and
+# still count as continuing it — a line break can drop a word.
+continuation_max_gap = 3
+
+# Best identity minus the best identity anywhere else in the corpus.
+#
+# Below this the wording is certain but the CITATION is a guess. This is common
+# and not a defect: the Quran repeats phrasing verbatim — 5:44, 5:45 and 5:47
+# share a whole clause. Reported, never blocking; it does not make the text
+# wrong, only the reference.
+min_margin = 0.05
+
+# Whether a quote found INSIDE a line of prose may be rewritten from the
+# corpus, or only cited. Off by default: the span boundary is inferred, and a
+# boundary error would overwrite the author's own words rather than a verse.
+replace_inline = false
+
+# Search effort. Raising `candidates` costs one alignment each.
+candidates = 8
+window_slack = 6
+gap_penalty = -1.0
+
+# Below this, two tokens count as unrelated rather than partly alike. Stops a
+# run of vaguely-similar Urdu words accumulating a positive alignment score.
+min_token_similarity = 0.5
+
+# Alignment scores within this of the best count as tied, and are broken in
+# favour of the candidate that continues the passage the previous line matched.
+# Reading order is evidence the aligner cannot see on its own.
+tie_epsilon = 0.75
+
+
+# ---------------------------------------------------------------------------
+# Routing (S5) — per-span language, run AFTER match
+# ---------------------------------------------------------------------------
+# A corpus hit from `match` is decisive: that span is Arabic by construction,
+# and no weight below applies to it. These only score the spans the matcher did
+# not resolve, combining orthography, vocalization, and Quranic ornaments into
+# one signed score (-1 = certain Arabic, +1 = certain Urdu). Image typeface is
+# deliberately NOT used — these books set Arabic in an Urdu typeface, so
+# naskh/nastaliq would fight the very mis-tag this stage exists to fix.
+[route]
+
+# Weight on Urdu-exclusive letters (ٹ ڈ ڑ ں ...), the strongest Urdu tell.
+w_urdu = 1.0
+
+# Weight on vocalization: Quranic Arabic is fully voweled, Urdu prose is not.
+w_tashkeel = 1.0
+
+# Weight on Quranic ornamental brackets ﴾ ﴿ around a quotation.
+w_ornament = 1.0
+
+# Tashkeel density at which vocalization counts as full evidence of Arabic;
+# density is ramped linearly to 1.0 at this value.
+tashkeel_arabic = 0.25
+
+# Score at/above urdu_cut routes Urdu; at/below arabic_cut routes Arabic;
+# between them the evidence is genuinely mixed and the span is left Mixed.
+urdu_cut = 0.2
+arabic_cut = -0.2
+
+
+# ---------------------------------------------------------------------------
+# Extraction quality — judging returned text
+# ---------------------------------------------------------------------------
+[extract]
+
+# Share of characters that must be Arabic-script for the read to look sane.
+# Catches the model replying in English, emitting mojibake, or leaking JSON.
+min_script_purity = 0.55
+
+# Share of text one repeated n-gram may occupy before it reads as a decoding
+# loop, and the n-gram length used to measure it.
+max_repeat_rate = 0.25
+repeat_ngram = 12
+
+# Returned lines / detected lines below this means the model dropped lines —
+# the most common VLM OCR failure, and invisible to any text-only metric.
+min_line_coverage = 0.95
+
+# Share of detected lines that may come back empty before it is flagged.
+max_empty_line_frac = 0.10
+
+# How far a cell's character count may exceed what its width could physically
+# carry before it is called misaligned. A 55px margin note cannot hold a
+# 40-character sentence. Catches text mapped to the WRONG region — which every
+# count-based check passes, because the counts are all correct.
+max_capacity_overrun = 2.5
